@@ -24,7 +24,7 @@ def get_test_input(input_dim, CUDA):
     img_ = Variable(img_)
     
     if CUDA:
-        img_ = img_.cuda()  
+        img_ = img_.cuda()
     
     return img_
 
@@ -45,8 +45,42 @@ def prep_image(img, inp_dim):
 def write(x, img):
     c1 = tuple(x[1:3].int())
     c2 = tuple(x[3:5].int())
+    image = img
+    #print('Height and width:',image.shape[:2])
+    crop_img = image[int(x[2]):int(x[4]),int(x[1]):int(x[3])]
     cls = int(x[-1])
     label = "{0}".format(classes[cls])
+    
+    
+    
+    if(frames%fps == 0):
+        time = frames/fps
+        
+        """
+        
+        if label in object_no:
+            object_no[label] = object_no[label]+1
+        else:
+            object_no[label] = 1
+        cv2.imwrite(r'D:\LY Project\pytorch-yolo-v3\crop\{}_{}_{}.jpg'.format(label,object_no[label],time),crop_img)
+        #print('Frame no:', frames)
+        """
+                
+        if(time in timestamp):
+            if label in timestamp[time]:
+                (timestamp[time])[label] = (timestamp[time])[label] + 1
+            else:
+                (timestamp[time])[label]=1
+        else:
+            timestamp[time]={label:1}
+            #timestamp[time]
+            
+            
+        print(timestamp)
+        cv2.imwrite(r'D:\LY Project\Bird_Eye\crop\{}_{}_{}.jpg'.format(label,timestamp[time][label],time),crop_img)
+    #else:
+        #object_no = {}
+            
     color = random.choice(colors)
     cv2.rectangle(img, c1, c2,color, 1)
     t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1 , 1)[0]
@@ -90,7 +124,7 @@ if __name__ == '__main__':
 
     CUDA = torch.cuda.is_available()
 
-    num_classes = 80
+    num_classes = 1
 
     CUDA = torch.cuda.is_available()
     
@@ -113,9 +147,15 @@ if __name__ == '__main__':
 
     model.eval()
     
+    object_no={}
+    timestamp  = {}
+    
     videofile = args.video
     
     cap = cv2.VideoCapture(videofile)
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    print('FPS of original video:',fps)
+
     
     assert cap.isOpened(), 'Cannot capture source'
     
@@ -142,7 +182,7 @@ if __name__ == '__main__':
 
             if type(output) == int:
                 frames += 1
-                print("FPS of the video is {:5.2f}".format( frames / (time.time() - start)))
+                print("FPS of the video is {:5.2f}  Frame no: {}".format( frames / (time.time() - start), frames))
                 cv2.imshow("frame", orig_im)
                 key = cv2.waitKey(1)
                 if key & 0xFF == ord('q'):
@@ -164,8 +204,10 @@ if __name__ == '__main__':
                 output[i, [1,3]] = torch.clamp(output[i, [1,3]], 0.0, im_dim[i,0])
                 output[i, [2,4]] = torch.clamp(output[i, [2,4]], 0.0, im_dim[i,1])
             
-            classes = load_classes('data/coco.names')
+            classes = load_classes('data/custom.names')
             colors = pkl.load(open("pallete", "rb"))
+            
+            
             
             list(map(lambda x: write(x, orig_im), output))
             
@@ -175,7 +217,7 @@ if __name__ == '__main__':
             if key & 0xFF == ord('q'):
                 break
             frames += 1
-            print("FPS of the video is {:5.2f}".format( frames / (time.time() - start)))
+            print("FPS of the video is {:5.2f}  Frame no: {}".format( frames / (time.time() - start), frames))
 
             
         else:
