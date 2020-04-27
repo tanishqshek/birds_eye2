@@ -17,11 +17,15 @@ from ttkthemes import ThemedStyle
 # GLOBAL CONSTANTS
 NUM_CLASSES = 23
 OUTPUT_IMAGES_PATH = '.\\crop'
-CONFIDENCE_THRESH = 0.5
-NMS_THRESH = 0.4
+CONFIDENCE_THRESH = 0.6
+NMS_THRESH = 0.6
 CFG_FILE = '.\\cfg\\yolov3-tiny-obj.cfg'
 WEIGHTS_FILE = '.\\weights\\yolov3-tiny-obj_best.weights'
 RESO = '640'
+
+CLASS_TO_OBJECT = {
+
+}
 
 
 # UI SECTION START
@@ -80,7 +84,7 @@ class BirdEye(tk.Tk):
                       'feature': self.feature_interest.get(),
                       'color': self.color_choice.get()}
 
-        run_video_demo(input_data, self)
+        run_video_demo(input_data, self.frames['FeatureSelectPage'])
 
 
 class MainPage(ttk.Frame):
@@ -189,6 +193,11 @@ class FileUploadPage(ttk.Frame):
 
 
 class FeatureSelectPage(ttk.Frame):
+
+    def write_to_output(self, data):
+        print('Entering write_to_output!')
+        print('This is being written: {}'.format(data))
+        self.output_text.insert(tk.END, data)
 
     def redraw(self, controller):
         print(self.object_flag, controller.object_interest.get() in self.feature_dict)
@@ -335,6 +344,13 @@ class FeatureSelectPage(ttk.Frame):
 
 # UI SECTION END
 
+class_to_object_mapping = {
+    'Coupe': 'Car',
+    'Sedan': 'Car',
+    'Hatchback': 'Car',
+    'Jeep': 'Car',
+}
+
 
 def get_test_input(input_dim, CUDA):
     img = cv2.imread("dog-cycle-car.png")
@@ -365,20 +381,23 @@ def prep_image(img, inp_dim):
     return img_, orig_im, dim
 
 
-def write(x, img, classes, colors, frames, fps, timestamp):
+def write(x, img, classes, colors, frames, fps, timestamp, UI, args, cap):
     c1 = tuple(x[1:3].int())
     c2 = tuple(x[3:5].int())
     image = img
     # print('Height and width:',image.shape[:2])
     crop_img = image[int(x[2]):int(x[4]), int(x[1]):int(x[3])]
+    print('x: {}'.format(x))
     cls = int(x[-1])
+    print('Class: {}'.format(cls))
     try:
         label = "{0}".format(classes[cls])
+        print('label: {}'.format(label))
     except IndexError:
         print('EOF')
 
     if frames % fps == 0:
-        time = frames / fps
+        time = float(frames) / float(fps)
 
         """
 
@@ -400,9 +419,25 @@ def write(x, img, classes, colors, frames, fps, timestamp):
             # timestamp[time]
 
         print(timestamp)
-        # cv2.imwrite(r'{}\{}_{}_{}.jpg'.format(OUTPUT_IMAGES_PATH,label, timestamp[time][label], time), crop_img)
+        try:
+            cv2.imwrite(r'{}\{}_{}_{}.jpg'.format(OUTPUT_IMAGES_PATH, label, timestamp[time][label], time), crop_img)
+        except Exception:
+            print("Couldn't write frame!")
     # else:
     # object_no = {}
+
+    # Check if predicted class is required by the user.
+    print('Write function entered')
+    print('Feature flag value: {}'.format(args['feature_flag']))
+    print('Color flag value: {}'.format(args['color_flag']))
+    print('Args: {}'.format(args))
+    if args['feature_flag']:
+        if not args['color_flag']:
+            if label == args['feature']:
+                print('Writing to UI')
+                UI.write_to_output('Desired object and feature combo {}/{} at time: {:5.2f}s\n\n'
+                                        .format(class_to_object_mapping[label], label,
+                                                cap.get(cv2.CAP_PROP_POS_MSEC) / 1000))
 
     color = random.choice(colors)
     cv2.rectangle(img, c1, c2, color, 1)
@@ -413,6 +448,7 @@ def write(x, img, classes, colors, frames, fps, timestamp):
     return img
 
 
+'''
 def arg_parse():
     """
     Parse arguements to the detect module
@@ -438,6 +474,7 @@ def arg_parse():
     "Input resolution of the network. Increase to increase accuracy. Decrease to increase speed",
                         default="608", type=str)
     return parser.parse_args()
+'''
 
 
 def run_video_demo(input_data, UI):
@@ -449,7 +486,21 @@ def run_video_demo(input_data, UI):
             'video': input_data['video'],
             'object': input_data['object'],
             'feature': input_data['feature'],
-            'color': input_data['color']}
+            'color': input_data['color'],
+            'feature_flag': None,
+            'color_flag': None}
+
+    # Setting up parameter flags
+    if args['feature'] is '':
+        # No feature is provided by the user
+        args['feature_flag'] = False
+    else:
+        args['feature_flag'] = True
+    if args['color'] is '':
+        # Color detection is not to be performed
+        args['color_flag'] = False
+    else:
+        args['color_flag'] = True
 
     confidence = float(args['confidence'])
     nms_thesh = float(args['nms_thres'])
@@ -532,7 +583,9 @@ def run_video_demo(input_data, UI):
             classes = load_classes('data/obj.names')
             colors = pkl.load(open("pallete", "rb"))
 
-            list(map(lambda x: write(x, orig_im, classes, colors, frames, fps, timestamp), output))
+            # Routine to find if current frame has object of interest.
+
+            list(map(lambda x: write(x, orig_im, classes, colors, frames, fps, timestamp, UI, args, cap), output))
 
             cv2.imshow("frame", orig_im)
             key = cv2.waitKey(1)
@@ -540,11 +593,9 @@ def run_video_demo(input_data, UI):
                 break
             frames += 1
             print("FPS of the video is {:5.2f}  Frame no: {}".format(frames / (time.time() - start), frames))
-            UI.frames['FeatureSelectPage'].output_text.insert(tk.END,
-                                                              "FPS of the video is {:5.2f}  Frame no: {}\n".format(
-                                                                  frames / (time.time() - start), frames))
         else:
             break
+    cap.release()
 
 
 if __name__ == "__main__":
