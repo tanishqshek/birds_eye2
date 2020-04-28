@@ -1,6 +1,11 @@
 from __future__ import division
 
-import argparse
+import multiprocessing
+import os
+from itertools import repeat
+
+import kmeans_colours as km
+from multiprocessing import Pool
 import pickle as pkl
 import random
 import time
@@ -13,6 +18,7 @@ from tkinter import ttk
 from tkinter import filedialog
 from PIL import ImageTk, Image
 from ttkthemes import ThemedStyle
+from os import listdir
 
 # GLOBAL CONSTANTS
 NUM_CLASSES = 23
@@ -21,7 +27,7 @@ CONFIDENCE_THRESH = 0.5
 NMS_THRESH = 0.4
 CFG_FILE = '.\\cfg\\yolov3-tiny-obj.cfg'
 WEIGHTS_FILE = '.\\weights\\yolov3-tiny-obj_best.weights'
-RESO = '640'
+RESO = '416'
 
 
 # UI SECTION START
@@ -75,12 +81,18 @@ class BirdEye(tk.Tk):
         frame.tkraise()
 
     def send_input_data(self):
-        input_data = {'video': self.video_path.get(),
-                      'object': self.object_interest.get(),
-                      'feature': self.feature_interest.get(),
-                      'color': self.color_choice.get()}
-
+        input_data = {
+            'video': self.video_path.get(),
+            'object': self.object_interest.get(),
+            'feature': self.feature_interest.get(),
+            'color': self.color_choice.get()
+        }
         run_video_demo(input_data, self)
+
+    def write_output_data(self, output_data):
+        print('write_output_data entered!')
+        for key in output_data:
+            self.frames['FeatureSelectPage'].output_text.insert(tk.END, output_data[key])
 
 
 class MainPage(ttk.Frame):
@@ -129,6 +141,7 @@ class MainPage(ttk.Frame):
 
 
 class FileUploadPage(ttk.Frame):
+
     # Redraw some widgets after file is selected
     def redraw(self, controller):
         if self.file_selected:
@@ -189,6 +202,9 @@ class FileUploadPage(ttk.Frame):
 
 
 class FeatureSelectPage(ttk.Frame):
+
+    def write_to_output(self, data):
+        self.output_text.insert(tk.END, data)
 
     def redraw(self, controller):
         print(self.object_flag, controller.object_interest.get() in self.feature_dict)
@@ -268,10 +284,11 @@ class FeatureSelectPage(ttk.Frame):
                             'Blue', 'Yellow', 'Cyan', 'Magenta',
                             'Silver', 'Gray', 'Maroon', 'Olive',
                             'Green', 'Purple', 'Teal', 'Navy']
-        self.object_list = ['People', 'Cat', 'Dog', 'Bag', 'Bicycle', 'Car', 'Bottle', 'Mobile Phone']
+        self.object_list = ['People', 'Cat', 'Dog', 'Bag', 'Bicycle', 'Car', 'Bottle', 'Mobile Phone', 'Laptop',
+                            'Scooter']
         self.feature_dict = {'Car': ['Sedan', 'Hatchback', 'Coupe', 'Jeep'],
-                             'Cat': ['Persian', 'Tiger cat', 'Tabby cat'],
-                             'Dog': ['Labrador Retriever', 'German Shepherd', 'Shih-tzu'],
+                             'Cat': ['Egyptian Cat', 'Persian Cat', 'Tiger cat', 'Tabby cat'],
+                             'Dog': ['Labrador Retriever', 'German Shepherd', 'Shih-tzu', 'Tibetan Mastiff'],
                              'Bag': ['Shopping Bag', 'Plastic Bag', 'Backpack', 'Suitcase']
                              }
         # Declaration for container of object and feature combo boxes
@@ -336,6 +353,33 @@ class FeatureSelectPage(ttk.Frame):
 # UI SECTION END
 
 
+class_to_object_mapping = {
+    'Coupe': 'Car',
+    'Sedan': 'Car',
+    'Hatchback': 'Car',
+    'Jeep': 'Car',
+    'Shih-Tzu': 'Dog',
+    'Siberian Huskey': 'Dog',
+    'German Shepherd': 'Dog',
+    'Tibetan Mastiff': 'Dog',
+    'Labrador Retriever': 'Dog',
+    'Egyptian Cat': 'Cat',
+    'Persian Cat': 'Cat',
+    'Tiger cat': 'Cat',
+    'Tabby cat': 'Cat',
+    'Shopping Bag': 'Bag',
+    'Plastic Bag': 'Bag',
+    'Backpack': 'Bag',
+    'Suitcase': 'Bag',
+    'Laptop': 'Laptop',
+    'Bottle': 'Bottle',
+    'Bicycle': 'Bicycle',
+    'Scooter': 'Scooter',
+    'Mobile Phone': 'Mobile Phone',
+    'Person': 'Person'
+}
+
+
 def get_test_input(input_dim, CUDA):
     img = cv2.imread("dog-cycle-car.png")
     img = cv2.resize(img, (input_dim, input_dim))
@@ -365,54 +409,106 @@ def prep_image(img, inp_dim):
     return img_, orig_im, dim
 
 
-def write(x, img, classes, colors, frames, fps, timestamp):
+def write(x, img, classes, colors, frames, fps, timestamp, output_for_ui, args, cap):
+    current_frame_time = round((cap.get(cv2.CAP_PROP_POS_MSEC) / 1000), 2)
     c1 = tuple(x[1:3].int())
     c2 = tuple(x[3:5].int())
     image = img
     # print('Height and width:',image.shape[:2])
     crop_img = image[int(x[2]):int(x[4]), int(x[1]):int(x[3])]
+    print('x: {}'.format(x))
     cls = int(x[-1])
-    try:
-        label = "{0}".format(classes[cls])
-    except IndexError:
-        print('EOF')
-
-    if frames % fps == 0:
-        time = frames / fps
-
-        """
-
-        if label in object_no:
-            object_no[label] = object_no[label]+1
-        else:
-            object_no[label] = 1
-        cv2.imwrite(r'D:\LY Project\pytorch-yolo-v3\crop\{}_{}_{}.jpg'.format(label,object_no[label],time),crop_img)
-        #print('Frame no:', frames)
-        """
-
-        if (time in timestamp):
-            if label in timestamp[time]:
-                (timestamp[time])[label] = (timestamp[time])[label] + 1
+    if not cls < 0:
+        print('Class: {}'.format(cls))
+        label = None
+        try:
+            label = "{0}".format(classes[cls])
+            print('label: {}'.format(label))
+        except IndexError:
+            print('EOF')
+        '''
+        if frames % fps == 0:
+            time = float(frames) / float(fps)
+    
+            """
+    
+            if label in object_no:
+                object_no[label] = object_no[label]+1
             else:
-                (timestamp[time])[label] = 1
-        else:
-            timestamp[time] = {label: 1}
-            # timestamp[time]
+                object_no[label] = 1
+            cv2.imwrite(r'D:\LY Project\pytorch-yolo-v3\crop\{}_{}_{}.jpg'.format(label,object_no[label],time),crop_img)
+            #print('Frame no:', frames)
+            """
+    
+            if (time in timestamp):
+                if label in timestamp[time]:
+                    (timestamp[time])[label] = (timestamp[time])[label] + 1
+                else:
+                    (timestamp[time])[label] = 1
+            else:
+                timestamp[time] = {label: 1}
+                # timestamp[time]
+    
+            print(timestamp)
+            try:
+                cv2.imwrite(r'{}\{}_{}_{}.jpg'.format(OUTPUT_IMAGES_PATH, label, timestamp[time][label], time), crop_img)
+            except Exception:
+                print("Couldn't write frame!")
+        # else:
+        # object_no = {}
+        '''
+        frame_captured = False
 
-        print(timestamp)
-        # cv2.imwrite(r'{}\{}_{}_{}.jpg'.format(OUTPUT_IMAGES_PATH,label, timestamp[time][label], time), crop_img)
-    # else:
-    # object_no = {}
+        # Check if predicted class is required by the user.
+        print('Write function entered')
+        print('Feature flag value: {}'.format(args['feature_flag']))
+        print('Color flag value: {}'.format(args['color_flag']))
+        print('Args: {}'.format(args))
+        if args['feature_flag']:
+            if label == args['feature']:
+                try:
+                    cv2.imwrite(r'{}\{}_{}.jpg'.format(OUTPUT_IMAGES_PATH, label, round(current_frame_time, 2)),
+                                crop_img)
+                    frame_captured = True
+                except Exception:
+                    print("Couldn't write frame!")
+                print('Writing to UI')
+                output_for_ui['{}_{}.jpg'.format(label,
+                                                 current_frame_time)] = 'Desired object and feature combo {}/{} ' \
+                                                                        'at time: {}s | ' \
+                    .format(class_to_object_mapping[label], label,
+                            round(current_frame_time, 2))
+                # output_for_ui.append(('Desired object and feature combo {}/{} at time: {:5.2f}s\n\n'
+                #                       .format(class_to_object_mapping[label], label,
+                #                               current_frame_time)))
 
-    color = random.choice(colors)
-    cv2.rectangle(img, c1, c2, color, 1)
-    t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1, 1)[0]
-    c2 = c1[0] + t_size[0] + 3, c1[1] + t_size[1] + 4
-    cv2.rectangle(img, c1, c2, color, -1)
-    cv2.putText(img, label, (c1[0], c1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [225, 255, 255], 1)
-    return img
+        elif not args['feature_flag']:
+            if class_to_object_mapping[label] == args['object']:
+                try:
+                    cv2.imwrite(r'{}\{}_{}.jpg'.format(OUTPUT_IMAGES_PATH, label, round(current_frame_time, 2)),
+                                crop_img)
+                    frame_captured = True
+                except Exception:
+                    print("Couldn't write frame!")
+
+                output_for_ui['{}_{}.jpg'.format(label,
+                                                      round(current_frame_time, 2))] = 'Desired object {} ' \
+                                                                             'at time: {:5.2f}s | ' \
+                    .format(class_to_object_mapping[label],
+                            current_frame_time)
+                # output_for_ui.append('Desired object {} at time: {:5.2f}s\n\n'
+                # .format(class_to_object_mapping[label],
+                # current_frame_time))
+        color = random.choice(colors)
+        cv2.rectangle(img, c1, c2, color, 1)
+        t_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_PLAIN, 1, 1)[0]
+        c2 = c1[0] + t_size[0] + 3, c1[1] + t_size[1] + 4
+        cv2.rectangle(img, c1, c2, color, -1)
+        cv2.putText(img, label, (c1[0], c1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [225, 255, 255], 1)
+        return img
 
 
+'''
 def arg_parse():
     """
     Parse arguements to the detect module
@@ -438,7 +534,7 @@ def arg_parse():
     "Input resolution of the network. Increase to increase accuracy. Decrease to increase speed",
                         default="608", type=str)
     return parser.parse_args()
-
+'''
 
 def run_video_demo(input_data, UI):
     args = {'confidence': CONFIDENCE_THRESH,
@@ -449,7 +545,21 @@ def run_video_demo(input_data, UI):
             'video': input_data['video'],
             'object': input_data['object'],
             'feature': input_data['feature'],
-            'color': input_data['color']}
+            'color': input_data['color'],
+            'feature_flag': None,
+            'color_flag': None}
+
+    # Setting up parameter flags
+    if args['feature'] == '':
+        # No feature is provided by the user
+        args['feature_flag'] = False
+    else:
+        args['feature_flag'] = True
+    if args['color'] == '':
+        # Color detection is not to be performed
+        args['color_flag'] = False
+    else:
+        args['color_flag'] = True
 
     confidence = float(args['confidence'])
     nms_thesh = float(args['nms_thres'])
@@ -478,6 +588,7 @@ def run_video_demo(input_data, UI):
 
     model.eval()
 
+    output_for_ui = {}
     object_no = {}
     timestamp = {}
 
@@ -489,6 +600,7 @@ def run_video_demo(input_data, UI):
 
     assert cap.isOpened(), 'Cannot capture source'
 
+    FPS_STORE = []
     frames = 0
     start = time.time()
     while cap.isOpened():
@@ -530,21 +642,45 @@ def run_video_demo(input_data, UI):
                 output[i, [2, 4]] = torch.clamp(output[i, [2, 4]], 0.0, im_dim[i, 1])
 
             classes = load_classes('data/obj.names')
+            print(classes)
             colors = pkl.load(open("pallete", "rb"))
 
-            list(map(lambda x: write(x, orig_im, classes, colors, frames, fps, timestamp), output))
+            # Routine to find if current frame has object of interest.
+
+            list(map(lambda x: write(x, orig_im, classes, colors, frames, fps, timestamp, output_for_ui, args, cap),
+                     output))
 
             cv2.imshow("frame", orig_im)
             key = cv2.waitKey(1)
             if key & 0xFF == ord('q'):
                 break
             frames += 1
-            print("FPS of the video is {:5.2f}  Frame no: {}".format(frames / (time.time() - start), frames))
-            UI.frames['FeatureSelectPage'].output_text.insert(tk.END,
-                                                              "FPS of the video is {:5.2f}  Frame no: {}\n".format(
-                                                                  frames / (time.time() - start), frames))
+            print("FPS of the video is {}  Frame no: {}".format(round(frames / (time.time() - start), 2), frames))
+            FPS_STORE.append(frames / (time.time() - start))
         else:
             break
+
+    cap.release()
+
+    output_for_ui['AVG_FPS'] = 'Average FPS of the program: {}d'.format(sum(FPS_STORE) / len(FPS_STORE))
+
+    print(output_for_ui)
+    # Color extraction routine
+    if args['color_flag']:
+        desired_color = args['color']
+        for file in listdir('{}'.format(OUTPUT_IMAGES_PATH)):
+            kmc = km.KMeansColours(img=file, clusters=5, desired_color=desired_color,
+            file_dir='{}\\'.format(OUTPUT_IMAGES_PATH),
+            file_dest='.\\crop_thumbnails\\')
+            output_for_ui[file] = output_for_ui[file] + 'Desired color {} is present: {}\n\n'.format(desired_color, kmc.driver())
+
+    elif not args['color_flag']:
+        for file in listdir('{}'.format(OUTPUT_IMAGES_PATH)):
+            output_for_ui[file] = output_for_ui[file] + '\n\n'
+
+    list(map(os.unlink, (os.path.join(OUTPUT_IMAGES_PATH, f) for f in os.listdir(OUTPUT_IMAGES_PATH))))
+    list(map(os.unlink, (os.path.join('.\\crop_thumbnails\\', f) for f in os.listdir('.\\crop_thumbnails'))))
+    UI.write_output_data(output_for_ui)
 
 
 if __name__ == "__main__":
