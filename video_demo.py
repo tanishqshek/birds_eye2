@@ -16,6 +16,7 @@ import tkinter as tk
 from tkinter import font
 from tkinter import ttk
 from tkinter import filedialog
+from tkinter import scrolledtext
 from PIL import ImageTk, Image
 from ttkthemes import ThemedStyle
 from os import listdir
@@ -23,11 +24,12 @@ from os import listdir
 # GLOBAL CONSTANTS
 NUM_CLASSES = 23
 OUTPUT_IMAGES_PATH = '.\\crop'
+OUTPUT_TEXT_PATH = '.\\output_text'
 CONFIDENCE_THRESH = 0.5
 NMS_THRESH = 0.4
 CFG_FILE = '.\\cfg\\yolov3-tiny-obj.cfg'
 WEIGHTS_FILE = '.\\weights\\yolov3-tiny-obj_best.weights'
-RESO = '416'
+RESO = '960'
 
 
 # UI SECTION START
@@ -81,6 +83,16 @@ class BirdEye(tk.Tk):
         frame.tkraise()
 
     def send_input_data(self):
+        # If user decides to run the demo, flush the output area first
+        self.frames['FeatureSelectPage'].output_text.delete(1.0, tk.END)
+
+        # Write all the basic instructions
+        instructions = "Press 'q' to stop detection.\nVideo file: {}\nObject of interest: {}\nFeature of interest: {}" \
+                       "\nColor of interest: {}\n\n".format(self.video_path.get(), self.object_interest.get(),
+                                                            self.feature_interest.get(), self.color_choice.get())
+
+        self.frames['FeatureSelectPage'].output_text.insert(tk.END, instructions)
+
         input_data = {
             'video': self.video_path.get(),
             'object': self.object_interest.get(),
@@ -91,7 +103,12 @@ class BirdEye(tk.Tk):
 
     def write_output_data(self, output_data):
         print('write_output_data entered!')
+        out_file = open('.\\{}\\{}_{}.txt'.format(OUTPUT_TEXT_PATH, self.object_interest.get(), round(time.time(), 2)), 'w')
+        out_file.write("Video file: {}\nObject of interest: {}\nFeature of interest: {}" \
+                       "\nColor of interest: {}\n\n".format(self.video_path.get(), self.object_interest.get(),
+                                                            self.feature_interest.get(), self.color_choice.get()))
         for key in output_data:
+            out_file.write(output_data[key])
             self.frames['FeatureSelectPage'].output_text.insert(tk.END, output_data[key])
 
 
@@ -161,7 +178,7 @@ class FileUploadPage(ttk.Frame):
     # fire the directory browse utility
     def browse_callback(self, controller):
         name = filedialog.askopenfilename(initialdir="/", title="Select file",
-                                          filetypes=(("avi", "*.avi"), ("mp4", "*.mp4"), ("all files", "*.*")))
+                                          filetypes=(("avi", "*.avi"), ("mp4", "*.mp4")))
         if name == '':
             self.browse_message.config(text='Please select a file before proceeding.\n'
                                             'Click on the "Browse Files" button to select video for object detection.')
@@ -229,6 +246,7 @@ class FeatureSelectPage(ttk.Frame):
         self.output_text.grid(row=2, column=0, sticky=tk.E + tk.W + tk.S + tk.N, padx=20, pady=20)
         self.rowconfigure(2, weight=8)
         self.columnconfigure(0, weight=20)
+        # self.scrollb.grid(row=0, column=1, sticky='nse')
 
         # Configuration for buttonContainer
         self.buttonContainer.grid(row=3, column=0, sticky=tk.E + tk.W + tk.S + tk.N, padx=10, pady=10)
@@ -284,7 +302,7 @@ class FeatureSelectPage(ttk.Frame):
                             'Blue', 'Yellow', 'Cyan', 'Magenta',
                             'Silver', 'Gray', 'Maroon', 'Olive',
                             'Green', 'Purple', 'Teal', 'Navy']
-        self.object_list = ['People', 'Cat', 'Dog', 'Bag', 'Bicycle', 'Car', 'Bottle', 'Mobile Phone', 'Laptop',
+        self.object_list = ['Person', 'Cat', 'Dog', 'Bag', 'Bicycle', 'Car', 'Bottle', 'Mobile Phone', 'Laptop',
                             'Scooter']
         self.feature_dict = {'Car': ['Sedan', 'Hatchback', 'Coupe', 'Jeep'],
                              'Cat': ['Egyptian Cat', 'Persian Cat', 'Tiger cat', 'Tabby cat'],
@@ -308,7 +326,11 @@ class FeatureSelectPage(ttk.Frame):
 
         # Declaration of Detected Object Timestamp TextArea
         self.ot_label = ttk.Label(self, text="Objects Detected")
-        self.output_text = tk.Text(self, width=0, height=0)
+        self.output_text = scrolledtext.ScrolledText(self, width=0, height=0, background="White", undo=True)
+
+        # Declaration of Timestamp TextArea Scrollbar
+        # self.scrollb = ttk.Scrollbar(self.output_text, command=self.output_text.yview)
+        # self.output_text['yscrollcommand'] = self.scrollb.set
 
         # Declaration of Colour detection checkbox:
         # self.colour_detect_label = ttk.Label(self.localContainer, text="Perform colour detection on required object?")
@@ -360,7 +382,7 @@ class_to_object_mapping = {
     'Jeep': 'Car',
     'Shih-Tzu': 'Dog',
     'Siberian Huskey': 'Dog',
-    'German Shepherd': 'Dog',
+    'German Shephard': 'Dog',
     'Tibetan Mastiff': 'Dog',
     'Labrador Retriever': 'Dog',
     'Egyptian Cat': 'Cat',
@@ -492,8 +514,8 @@ def write(x, img, classes, colors, frames, fps, timestamp, output_for_ui, args, 
                     print("Couldn't write frame!")
 
                 output_for_ui['{}_{}.jpg'.format(label,
-                                                      round(current_frame_time, 2))] = 'Desired object {} ' \
-                                                                             'at time: {:5.2f}s | ' \
+                                                 round(current_frame_time, 2))] = 'Desired object {} ' \
+                                                                                  'at time: {:5.2f}s | ' \
                     .format(class_to_object_mapping[label],
                             current_frame_time)
                 # output_for_ui.append('Desired object {} at time: {:5.2f}s\n\n'
@@ -535,6 +557,7 @@ def arg_parse():
                         default="608", type=str)
     return parser.parse_args()
 '''
+
 
 def run_video_demo(input_data, UI):
     args = {'confidence': CONFIDENCE_THRESH,
@@ -670,9 +693,10 @@ def run_video_demo(input_data, UI):
         desired_color = args['color']
         for file in listdir('{}'.format(OUTPUT_IMAGES_PATH)):
             kmc = km.KMeansColours(img=file, clusters=5, desired_color=desired_color,
-            file_dir='{}\\'.format(OUTPUT_IMAGES_PATH),
-            file_dest='.\\crop_thumbnails\\')
-            output_for_ui[file] = output_for_ui[file] + 'Desired color {} is present: {}\n\n'.format(desired_color, kmc.driver())
+                                   file_dir='{}\\'.format(OUTPUT_IMAGES_PATH),
+                                   file_dest='.\\crop_thumbnails\\')
+            output_for_ui[file] = output_for_ui[file] + 'Desired color {} is present: {}\n\n'.format(desired_color,
+                                                                                                     kmc.driver())
 
     elif not args['color_flag']:
         for file in listdir('{}'.format(OUTPUT_IMAGES_PATH)):
