@@ -17,8 +17,10 @@ from tkinter import font
 from tkinter import ttk
 from tkinter import filedialog
 from tkinter import scrolledtext
+from tkinter import *
 from PIL import ImageTk, Image
 from ttkthemes import ThemedStyle
+from ttkthemes import ThemedTk
 from os import listdir
 
 # GLOBAL CONSTANTS
@@ -31,6 +33,49 @@ CFG_FILE = '.\\cfg\\yolov3-tiny-obj.cfg'
 WEIGHTS_FILE = '.\\weights\\yolov3-tiny-obj_best.weights'
 RESO = '960'
 
+#tkinter
+# window = ThemedTk(theme="arc")
+# ttk.Button(window, text="Quit", command=window.destroy).pack()
+# window.mainloop()
+
+class ToolTip(object):
+
+    def __init__(self, widget):
+        self.widget = widget
+        self.tipwindow = None
+        self.id = None
+        self.x = self.y = 0
+
+    def showtip(self, text):
+        "Display text in tooltip window"
+        self.text = text
+        if self.tipwindow or not self.text:
+            return
+        x, y, cx, cy = self.widget.bbox("insert")
+        x = x + self.widget.winfo_rootx() + 57
+        y = y + cy + self.widget.winfo_rooty() +27
+        self.tipwindow = tw = Toplevel(self.widget)
+        tw.wm_overrideredirect(1)
+        tw.wm_geometry("+%d+%d" % (x, y))
+        label = Label(tw, text=self.text, justify=LEFT,
+                      background="#ffffe0", relief=SOLID, borderwidth=1,
+                      font=("tahoma", "8", "normal"))
+        label.pack(ipadx=1)
+
+    def hidetip(self):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy()
+
+def CreateToolTip(widget, text):
+    toolTip = ToolTip(widget)
+    def enter(event):
+        toolTip.showtip(text)
+    def leave(event):
+        toolTip.hidetip()
+    widget.bind('<Enter>', enter)
+    widget.bind('<Leave>', leave)
 
 # UI SECTION START
 
@@ -40,7 +85,7 @@ class BirdEye(tk.Tk):
         tk.Tk.__init__(self, *args, **kwargs)
 
         self.style = ThemedStyle(self)
-        self.style.set_theme('breeze')
+        self.style.set_theme('plastik')
 
         # Global data store
         self.video_path = tk.StringVar()
@@ -150,11 +195,15 @@ class MainPage(ttk.Frame):
         upload_button = ttk.Button(self, text="Process input video",
                                    command=lambda: controller.show_frame("FileUploadPage"))
         upload_button.grid(row=1, column=0, sticky='s', padx=20, pady=20)
+        # upload_button = ttk.Button(self, text = 'click me')
+        # upload_button.grid()
+        CreateToolTip(upload_button, text = 'Click this button navigate to the file upload page\n')
         self.rowconfigure(1, weight=1)
 
         quit_button = ttk.Button(self, text="Quit", command=controller.destroy)
         quit_button.grid(row=2, column=0)
         self.rowconfigure(2, weight=1)
+        
 
 
 class FileUploadPage(ttk.Frame):
@@ -166,6 +215,7 @@ class FileUploadPage(ttk.Frame):
             self.change_file_button = ttk.Button(self, text="Change files",
                                                  command=lambda: self.browse_callback(controller))
             self.change_file_button.grid(row=1, column=0)
+            CreateToolTip(self.change_file_button, text = 'Click this button to select a different file\n')
             self.upload_button.grid(row=2, column=0)
             self.back_button.grid(row=3, column=0)
             self.quit_button.grid(row=4, column=0)
@@ -174,6 +224,7 @@ class FileUploadPage(ttk.Frame):
             self.browse_message.config(text='Video path: ' + controller.video_path.get())
             self.upload_button.config(text="Select Parameters",
                                       command=lambda: controller.show_frame("FeatureSelectPage"))
+            CreateToolTip(self.upload_button, text = 'Click this button to proceed further and choose parameters\n')
 
     # fire the directory browse utility
     def browse_callback(self, controller):
@@ -207,7 +258,11 @@ class FileUploadPage(ttk.Frame):
         self.upload_button = ttk.Button(self, text="Browse files",
                                         command=lambda: self.browse_callback(controller))
         self.upload_button.grid(row=1, column=0)
+        CreateToolTip(self.upload_button, text = 'Click this button to open the File Explorer\n')
+        
         self.rowconfigure(1, weight=1)
+
+        
 
         self.back_button = ttk.Button(self, text="Back", command=lambda: controller.show_frame("MainPage"))
         self.back_button.grid(row=2, column=0)
